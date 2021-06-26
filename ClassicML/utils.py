@@ -5,6 +5,7 @@ import plotly
 from sklearn.metrics import mean_absolute_error
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.multioutput import MultiOutputRegressor
+from sklearn.model_selection import TimeSeriesSplit
 
 from pandas import DataFrame
 from pandas import concat
@@ -67,6 +68,32 @@ def walk_forward_validation(data, n_test, n_out=1):
 	error = mean_absolute_error(test[:, -n_out:], predictions)
 	return error, test[:, -n_out:], predictions, model
 
+# walk-forward validation for univariate data
+def k_fold_cross_validation(data, n_splits, n_out=1):
+	predictions = list()
+	y = list()
+	# split dataset
+	ts_splits = TimeSeriesSplit(n_splits=n_splits)
+	# step over each split
+	for train_index, test_index in ts_splits.split(data):
+		train = data[train_index]
+		test = data[test_index]
+		# split test row into input and output columns
+		testX, testy = test[:, :-n_out], test[:, -n_out:]
+		# fit model on history and make a prediction
+		yhat, model = random_forest_forecast(train, testX, n_out=n_out)
+		# store forecast in list of predictions
+		predictions.append(yhat.flatten())
+		y.append(testy.flatten())
+		# add actual observation to history for the next loop
+		# summarize progress
+		print('>expected={}, predicted={}'.format(testy.flatten(), yhat))
+	# estimate prediction error
+	predictions = np.array(predictions).flatten()
+	y = np.array(y).flatten()
+	error = mean_absolute_error(y, predictions)
+	return error, y, predictions, model
+
 # split a univariate dataset into train/test sets
 def train_test_split(data, n_test):
 	return data[:-n_test, :], data[-n_test:, :]
@@ -86,6 +113,9 @@ def random_forest_forecast(train, testX, n_out = 1):
 		model = MultiOutputRegressor(clf).fit(trainX, trainy)
 
 	# make a one-step prediction
-	yhat = model.predict([testX])
-	# model.predict(testX.reshape(1,6))
-	return yhat[0], model
+	if len(testX.shape)==1:
+		yhat = model.predict([testX])
+		return yhat[0], model
+	else:
+		yhat = model.predict(testX)
+		return yhat, model
