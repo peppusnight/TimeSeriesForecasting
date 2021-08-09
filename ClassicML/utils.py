@@ -6,6 +6,7 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.base import BaseEstimator, TransformerMixin
 
 from pandas import DataFrame
 from pandas import concat
@@ -47,6 +48,7 @@ def series_to_supervised(data, n_in=1, n_out=1, single_output=False, dropnan=Tru
 # walk-forward validation for univariate data
 def walk_forward_validation(data, n_test, n_out=1):
 	predictions = list()
+	predictions_baseline = list()
 	# split dataset
 	train, test = train_test_split(data, n_test)
 	# seed history with training dataset
@@ -57,15 +59,21 @@ def walk_forward_validation(data, n_test, n_out=1):
 		testX, testy = test[i, :-n_out], test[i, -n_out:]
 		# fit model on history and make a prediction
 		yhat, model = random_forest_forecast(history, testX, n_out=n_out)
+		# baseline persistence model
+		yhat_baseline = persistence_forecast(testX, n_out=n_out)
 		# store forecast in list of predictions
 		predictions.append(yhat)
+		# store forecast of persistence model in list of predictions
+		predictions_baseline.append(yhat_baseline)
 		# add actual observation to history for the next loop
 		history.append(test[i])
 		# summarize progress
 		print('>expected={}, predicted={}'.format(testy, yhat))
 	# estimate prediction error
 	predictions = np.array(predictions)
+	predictions_baseline = np.array(predictions_baseline)
 	error = mean_absolute_error(test[:, -n_out:], predictions)
+	error_baseline = mean_absolute_error(test[:, -n_out:], predictions_baseline)
 	return error, test[:, -n_out:], predictions, model
 
 # walk-forward validation for univariate data
@@ -119,3 +127,41 @@ def random_forest_forecast(train, testX, n_out = 1):
 	else:
 		yhat = model.predict(testX)
 		return yhat, model
+
+# Persistence mean model forecast
+def persistence_mean_forecast(testX, n_out = 1):
+	# make a one-step prediction
+	if len(testX.shape)==1:
+		yhat = testX.mean()
+		yhat = [yhat]*n_out
+		return np.array(yhat)
+	else:
+		yhat = testX.mean(axis=1)
+		yhat = [yhat]*n_out
+		return np.array(yhat)
+
+# Persistence model forecast
+def persistence_forecast(testX, n_out = 1):
+	# make a one-step prediction
+	if len(testX.shape)==1:
+		yhat = testX[-1]
+		yhat = [yhat]*n_out
+		return np.array(yhat)
+	else:
+		yhat = testX[:,-1]
+		yhat = [yhat]*n_out
+		return np.array(yhat)
+
+class series_to_supervised_pipe(BaseEstimator, TransformerMixin):
+  def __init__(self, n_in=1, n_out=1, single_output=False, dropnan=True):
+    print('\n>>>>>>>init() called.\n')
+
+  def fit(self, X, y = None):
+    print('\n>>>>>>>fit() called.\n')
+    return self
+
+  def transform(self, X, y = None):
+    print('\n>>>>>>>transform() called.\n')
+    X_ = X.copy() # creating a copy to avoid changes to original dataset
+    X_.X2 = 2 * np.sqrt(X_.X2)
+    return X_
