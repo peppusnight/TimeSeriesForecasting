@@ -11,35 +11,49 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from pandas import DataFrame
 from pandas import concat
 
-def series_to_supervised(data, n_in=1, n_out=1, single_output=False, dropnan=True):
+def series_to_supervised(data, n_in=1, n_out=1, single_output=False, single_feature=True, dropnan=True):
 	"""
 	Frame a time series as a supervised learning dataset.
 	Arguments:
 		data: Sequence of observations as a list or NumPy array.
 		n_in: Number of lag observations as input (X).
 		n_out: Number of observations as output (y).
+		single_output: If True, preidct only last n_out; if False predict all of them
+		single_feature: If True, use only last columns as output tag
 		dropnan: Boolean whether or not to drop rows with NaN values.
 	Returns:
 		Pandas DataFrame of series framed for supervised learning.
 	"""
-	n_vars = 1 if type(data) is list else data.shape[1]
+	n_vars = 1 if isinstance(data, list) else data.shape[1]
 	df = pd.DataFrame(data)
-	cols, names = list(), list()
-	# input sequence (t-n, ... t-1)
-	for i in range(n_in, 0, -1):
+	cols, names, train_names = list(), list(), list()
+	# input sequence (t-n, ... t-1, t)
+	for i in range(n_in, -1, -1):
 		cols.append(df.shift(i))
-		names += [('var%d(t-%d)' % (j+1, i)) for j in range(n_vars)]
-	# forecast sequence (t, t+1, ... t+n)
-	n_init = n_out-1 if single_output else 0
-	for i in range(n_init, n_out):
-		cols.append(df.shift(-i))
 		if i == 0:
-			names += [('var%d(t)' % (j+1)) for j in range(n_vars)]
+			names += [('var%d(t)' % (j + 1)) for j in range(n_vars)]
+			train_names += [('var%d(t)' % (j + 1)) for j in range(n_vars)]
 		else:
-			names += [('var%d(t+%d)' % (j+1, i)) for j in range(n_vars)]
+			names += [('var%d(t-%d)' % (j + 1, i)) for j in range(n_vars)]
+			train_names += [('var%d(t-%d)' % (j + 1, i)) for j in range(n_vars)]
+	# forecast sequence (t+1, ... t+n)
+	forecast_names = []
+	for i in range(1, n_out+1):
+		cols.append(df.shift(-i))
+		names += [('var%d(t+%d)' % (j+1, i)) for j in range(n_vars)]
+		forecast_names += [('var%d(t+%d)' % (j+1, i)) for j in range(n_vars)]
 	# put it all together
 	agg = pd.concat(cols, axis=1)
 	agg.columns = names
+
+	if single_feature:
+		forecast_names = [i for i in forecast_names if 'var{}'.format(int(n_vars)) in i]
+
+	if single_output:
+		forecast_names = [i for i in forecast_names if '+{}'.format(int(n_out)) in i]
+
+	agg = agg.loc[:, train_names + forecast_names]
+
 	# drop rows with NaN values
 	if dropnan:
 		agg.dropna(inplace=True)
